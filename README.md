@@ -2,7 +2,7 @@
 
 # Fusion Free Deburr
 
-[![Version](https://img.shields.io/github/v/release/jkkicks/Fusion-Free-Deburr?label=version)](https://github.com/jkkicks/Fusion-Free-Deburr/releases/latest) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
+[![Version](https://img.shields.io/github/v/release/jkkicks/Fusion-Free-Deburr?label=version)](https://github.com/jkkicks/Fusion-Free-Deburr/releases/latest) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Status: beta](https://img.shields.io/badge/status-beta-yellow)
 
 **Free 3-axis deburring toolpaths for Autodesk Fusion, using ball, lollipop, and chamfer cutters.**
 
@@ -58,4 +58,4 @@ AI assistants. See [CONTRIBUTING.md](CONTRIBUTING.md) and check
 
 Fusion Free Deburr generates custom 3D sketch geometry and uses Fusion's native Trace strategy to create the toolpath.
 
-> **Alpha software:** Simulate and inspect the toolpath before machining.
+> **Beta software:** Simulate and inspect the toolpath before machining.
