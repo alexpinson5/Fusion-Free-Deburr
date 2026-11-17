@@ -183,11 +183,17 @@ does not resolve edges of linked (external reference) components or manufacturin
 models (issue #14), so two fallbacks apply only when a token fails. The queued job
 uses the picked edge itself if Fusion still reports it valid. For later edits, each
 saved edge also stores its shape (its length and nine points evenly spaced along
-it, ends included); the edge is then the single setup-model edge matching that
-shape within 0.001 mm, in either direction. Start, middle and end points alone are
-not enough: two same-radius circles in perpendicular planes share all three and the
-same length, and differ only at the points between. No match, or two different
-matching edges, asks for reselection. The shape list is an
+it, ends included). The edge is then the single setup-model edge that passes two
+checks. Its shape matches the saved one within 0.001 mm, in either direction; and
+the saved token, resolved through the design that owns the edge's body (the
+manufacturing model's or the linked document's own design, where it does resolve),
+names that same edge: the same native edge at an occurrence path that ends with the
+resolved edge's path. Shape alone never selects an edge. A coincident edge of
+another body has the same shape but is not the saved edge, so if the saved edge's
+body has left the setup the operation asks for reselection. Start, middle and end
+points alone are not enough for the shape: two same-radius circles in perpendicular
+planes share all three and the same length, and differ only at the points between.
+No match, or two different matching edges, asks for reselection. The shape list is an
 optional addition to the saved settings: older operations load unchanged.
 Lollipop and chamfer paths on manufacturing models stay rejected by the
 clearance setup check.
@@ -231,6 +237,17 @@ no changes recalculated the operation, and the toolpath visibly followed the
 selected edge for both the horizontal and the vertical arc. Not yet verified in
 Fusion: lollipop or chamfer
 cutters on linked edges.
+
+Live verification of the token check (2026-11-17, Fusion 2706.1.17, `xref demo
+CAM`, read-only API script against the loaded add-in). A new manufacturing model
+gave a copy of the linked body whose four edges coincide with the linked body's
+own. None of the copy's tokens resolved through the document's design; all four
+resolved through the manufacturing model's design, and each edge was found again
+as itself. With an edge saved on one body and only the other body's edges offered,
+all four coincident same-shape edges were refused, in both directions. An edge's
+own shape with a neighbouring edge's token was refused too. The same held for a
+body placed directly in a manufacturing model. Checked by hand the same day: the
+saved tokens still resolved after closing and reopening the document.
 
 Guide sketches and manufacturing models (observed 2026-11-17, Fusion 2706.1.17,
 `xref demo CAM`): the guide sketch is always drawn in the design's root component

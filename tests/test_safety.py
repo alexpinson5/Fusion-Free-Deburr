@@ -105,7 +105,27 @@ class SafetyTests(unittest.TestCase):
         """A mock edge whose point at parameter t (0 to 1) is point_at(t)."""
         evaluator = NS(getParameterExtents=lambda: (True, 0, 1),
                        getPointAtParameter=lambda t: (True, NS(**dict(zip('xyz', point_at(t))))))
-        return NS(evaluator=evaluator, entityToken='token', length=length)
+        nowhere = NS(findEntityByToken=lambda token: [])
+        return NS(evaluator=evaluator, entityToken='token', length=length,
+                  nativeObject=None, assemblyContext=None,
+                  body=NS(parentComponent=NS(parentDesign=nowhere)))
+
+    class _Native:
+        """An edge as its own design resolves it from a token."""
+        nativeObject = None
+
+        def __init__(self, path=''):
+            self.assemblyContext = NS(fullPathName=path) if path else None
+
+    @staticmethod
+    def _owned(edge, saved, path='', native=None):
+        """Make `edge` a setup-model edge at occurrence `path` whose body's own
+        design resolves the token to `saved`."""
+        edge.nativeObject = native or saved
+        edge.assemblyContext = NS(fullPathName=path) if path else None
+        owner = NS(findEntityByToken=lambda token: [saved])
+        edge.body = NS(parentComponent=NS(parentDesign=owner))
+        return edge
 
     @classmethod
     def _edge(cls, start, end, length=None):
@@ -134,18 +154,60 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(shape, [1] + [[i / 8, 0, 0] for i in range(9)])
 
         design = NS(findEntityByToken=lambda token: [])
-        same = self._edge((1, 0, 0), (0, 0, 0))  # direction may differ
+        native = self._Native()
+        same = self._owned(self._edge((1, 0, 0), (0, 0, 0)), native)  # direction may differ
         arc = self._edge((0, 0, 0), (1, 0, 0), length=1.2)  # same ends, longer
         other = self._edge((0, 1, 0), (1, 1, 0))
         with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
             self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [other, arc, same]), same)
             self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [same, same]), same)
-            # Moved, or two different edges in the same place: reselect.
+            # Moved: reselect.
             self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [other, arc]))
+            # A different edge in the same place does not hide the saved one.
             twin = self._edge((0, 0, 0), (1, 0, 0))
-            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [same, twin]))
+            self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [twin, same]), same)
+            # Two placements of the saved edge in the same place: reselect.
+            copy = self._owned(self._edge((0, 0, 0), (1, 0, 0)), native)
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [same, copy]))
             # Settings saved by earlier versions have no shapes.
             self.assertIsNone(fusion.find_edge(design, 'token', None, lambda: [same]))
+
+    def test_coincident_edge_of_another_body_is_not_the_saved_edge(self):
+        # Review of the issue #14 fix: the saved edge's body leaves the setup
+        # and an edge with the same length and points remains on another body.
+        shape = fusion.edge_shape(self._edge((0, 0, 0), (1, 0, 0)))
+        design = NS(findEntityByToken=lambda token: [])
+        native = self._Native()
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            # Its body's design does not know the token at all.
+            stranger = self._edge((0, 0, 0), (1, 0, 0))
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [stranger]))
+            # Its body's design resolves the token, but to a different edge.
+            neighbour = self._owned(self._edge((0, 0, 0), (1, 0, 0)), native,
+                                    native=self._Native())
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [neighbour]))
+            # The saved edge is still there but no longer has the saved shape.
+            moved = self._owned(self._edge((0, 1, 0), (1, 1, 0)), native)
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [moved, stranger]))
+
+    def test_saved_edge_is_matched_by_the_end_of_its_occurrence_path(self):
+        # A manufacturing model's design gives the edge from its own root; the
+        # setup gives the same edge from the document's root.
+        shape = fusion.edge_shape(self._edge((0, 0, 0), (1, 0, 0)))
+        design = NS(findEntityByToken=lambda token: [])
+        native = self._Native()
+        saved = self._Native('Model:1+Part:1')
+        saved.nativeObject = native
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            for path, found in (('Models:1+Mfg:1+Model:1+Part:1', True),
+                                ('Model:1+Part:1', True),
+                                ('Models:1+Mfg:1+Model:1+Part:2', False),
+                                ('Models:1+Mfg:1+OtherModel:1+Part:1', False),
+                                ('', False)):
+                with self.subTest(path=path):
+                    edge = self._owned(self._edge((0, 0, 0), (1, 0, 0)), saved, path, native)
+                    self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [edge]),
+                                  edge if found else None)
 
     def test_saved_circle_is_not_matched_to_a_perpendicular_circle(self):
         # Review of the issue #14 fix: two same-radius circles in perpendicular planes have
@@ -160,8 +222,10 @@ class SafetyTests(unittest.TestCase):
         self.assertFalse(dc.same_edge_shape(shape, other_shape, fusion.VERTEX_TOL))
 
         design = NS(findEntityByToken=lambda token: [])
-        again = self._circle(x, y)
-        backwards = self._circle(x, y, reverse=True)
+        native = self._Native()
+        again = self._owned(self._circle(x, y), native)
+        backwards = self._owned(self._circle(x, y, reverse=True), native)
+        other = self._owned(other, native)  # even when the token names it
         with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
             # Only the other circle is left: reselect, never the wrong edge.
             self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [other]))

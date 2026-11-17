@@ -440,14 +440,39 @@ def setup_model_edges(setup: adsk.cam.Setup):
     return [edge for body in bodies(setup.models) for edge in body.edges]
 
 
-def find_edge(design: adsk.fusion.Design, token, shape, candidates):
-    """The saved edge: by token, else the one edge from `candidates()` with
-    the saved shape.
+def _occurrence_path(entity):
+    context = entity.assemblyContext
+    return context.fullPathName if context else ''
 
-    Design.findEntityByToken does not resolve edges of linked (external
-    reference) components or manufacturing models. Those are found by shape
-    among the setup's model edges instead. No match, or more than one
-    distinct match, returns None so the user reselects."""
+
+def _is_token_edge(candidate: adsk.fusion.BRepEdge, token):
+    """Whether `token` names this setup-model edge.
+
+    The token is resolved through the design that owns the candidate's body:
+    the manufacturing model's or the linked document's own design. The edge
+    it gives is seen from that design's root, so it is compared with the
+    candidate by native edge and by the end of the occurrence path."""
+    owner = candidate.body.parentComponent.parentDesign
+    saved = find_by_token(owner, token, adsk.fusion.BRepEdge.cast) if owner else None
+    if saved is None:
+        return False
+    if saved == candidate:
+        return True
+    if (saved.nativeObject or saved) != (candidate.nativeObject or candidate):
+        return False
+    path, saved_path = _occurrence_path(candidate), _occurrence_path(saved)
+    return not saved_path or path == saved_path or path.endswith('+' + saved_path)
+
+
+def find_edge(design: adsk.fusion.Design, token, shape, candidates):
+    """The saved edge: by token, else the one edge from `candidates()` that
+    the token names in its own design and that still has the saved shape.
+
+    Design.findEntityByToken does not resolve edges of manufacturing models.
+    Those are looked up among the setup's model edges instead. A coincident
+    edge of another body has the saved shape but is not the saved edge, so
+    shape alone never selects an edge. No match, or more than one distinct
+    match, returns None so the user reselects."""
     edge = find_by_token(design, token, adsk.fusion.BRepEdge.cast)
     if edge or not shape:
         return edge
@@ -456,6 +481,7 @@ def find_edge(design: adsk.fusion.Design, token, shape, candidates):
         if abs(candidate.length - shape[0]) > VERTEX_TOL:
             continue
         if (dc.same_edge_shape(edge_shape(candidate), shape, VERTEX_TOL)
+                and _is_token_edge(candidate, token)
                 and candidate not in matches):
             matches.append(candidate)
     return matches[0] if len(matches) == 1 else None
