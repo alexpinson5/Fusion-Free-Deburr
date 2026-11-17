@@ -385,6 +385,9 @@ def save_settings(op: adsk.cam.Operation, edges, width, sketch):
     data = {
         'version': 1,
         'edges': [e.entityToken for e in edges],
+        # Optional, one per edge: finds the edge again when its token cannot
+        # be resolved (linked components, manufacturing models).
+        'edge_shapes': [edge_shape(e) for e in edges],
         'width': width,
         'sketch': sketch.entityToken,
     }
@@ -402,6 +405,58 @@ def find_by_token(design: adsk.fusion.Design, token, cast):
         if typed:
             return typed
     return None
+
+
+def edge_shape(edge: adsk.fusion.BRepEdge):
+    """[length, start, middle, end] of an edge in model space, or None."""
+    ev = edge.evaluator
+    ok, t0, t1 = ev.getParameterExtents()
+    if not ok:
+        return None
+    points = []
+    for t in (t0, (t0 + t1) / 2, t1):
+        ok, p = ev.getPointAtParameter(t)
+        if not ok:
+            return None
+        points.append(list(_tup(p)))
+    return [edge.length] + points
+
+
+def setup_model_edges(setup: adsk.cam.Setup):
+    """Every edge of the setup's model bodies, as CAM presents them."""
+    def bodies(entities):
+        result = []
+        for entity in entities:
+            body = adsk.fusion.BRepBody.cast(entity)
+            occurrence = adsk.fusion.Occurrence.cast(entity)
+            if body:
+                result.append(body)
+            elif occurrence:
+                result.extend(bodies(occurrence.bRepBodies))
+                result.extend(bodies(occurrence.childOccurrences))
+        return result
+    return [edge for body in bodies(setup.models) for edge in body.edges]
+
+
+def find_edge(design: adsk.fusion.Design, token, shape, candidates):
+    """The saved edge: by token, else the one edge from `candidates()` with
+    the saved shape.
+
+    Design.findEntityByToken does not resolve edges of linked (external
+    reference) components or manufacturing models. Those are found by shape
+    among the setup's model edges instead. No match, or more than one
+    distinct match, returns None so the user reselects."""
+    edge = find_by_token(design, token, adsk.fusion.BRepEdge.cast)
+    if edge or not shape:
+        return edge
+    matches = []
+    for candidate in candidates():
+        if abs(candidate.length - shape[0]) > VERTEX_TOL:
+            continue
+        if (dc.same_edge_shape(edge_shape(candidate), shape, VERTEX_TOL)
+                and candidate not in matches):
+            matches.append(candidate)
+    return matches[0] if len(matches) == 1 else None
 
 
 def operation_for_entity(design: adsk.fusion.Design, entity, ops):

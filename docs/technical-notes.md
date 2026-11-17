@@ -168,8 +168,8 @@ Run regressions outside Fusion with `python -m unittest discover -s tests`.
 Fusion API tests use mocks; actual Trace generation and parameter compatibility must
 also be checked in Fusion.
 
-The dialog's execute handler snapshots only the document, setup/operation, edge tokens,
-tool JSON, and width. It performs no Design or CAM mutations. Once the dialog is
+The dialog's execute handler snapshots only the document, setup/operation, edges
+(tokens and the picked edges), tool JSON, and width. It performs no Design or CAM mutations. Once the dialog is
 destroyed, a delayed custom event runs the update on Fusion's main thread when the
 selection command is idle. Other commands defer the job until they terminate. A
 changed document or invalidated setup, operation, or edge rejects the queued job.
@@ -177,6 +177,18 @@ Cancellation queues nothing; stopping the add-in cancels queued work. Cross-prod
 updates are not grouped into the dialog's single undo transaction. Explicit failure
 rollback below still applies. This separation avoids nesting sketch/CAM edits in a
 Manufacture command's commit; live verification is required after lifecycle changes.
+
+Edges are normally found again by their entity token. `Design.findEntityByToken`
+does not resolve edges of linked (external reference) components or manufacturing
+models (issue #14), so two fallbacks apply only when a token fails. The queued job
+uses the picked edge itself if Fusion still reports it valid. For later edits, each
+saved edge also stores its shape (length, start, middle and end points); the edge
+is then the single setup-model edge matching that shape within 0.001 mm. No match,
+or two different matching edges, asks for reselection. The shape list is an
+optional addition to the saved settings: older operations load unchanged. These
+fallbacks are covered by mocked unit tests only and have not yet been verified in
+Fusion. Lollipop and chamfer paths on manufacturing models stay rejected by the
+clearance setup check.
 
 Live verification (2026-10-30, Fusion 2705.1.30): the 11 saved edges in
 `Xometry_Mill_Test_Part` produced one contour and generated a valid Trace toolpath

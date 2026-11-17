@@ -99,6 +99,59 @@ class SafetyTests(unittest.TestCase):
                 tools, 'diameter_cm', return_value=1):
             self.assertEqual(tools.validate_ball_tool(MagicMock()), .5)
 
+    @staticmethod
+    def _edge(start, end, length=None):
+        mid = tuple((a + b) / 2 for a, b in zip(start, end))
+        points = {0: start, .5: mid, 1: end}
+        evaluator = NS(getParameterExtents=lambda: (True, 0, 1),
+                       getPointAtParameter=lambda t: (True, NS(**dict(zip('xyz', points[t])))))
+        return NS(evaluator=evaluator, entityToken='token',
+                  length=dc.dist(start, end) if length is None else length)
+
+    def test_saved_edge_is_found_by_shape_when_its_token_does_not_resolve(self):
+        # Issue #14: linked components and manufacturing models.
+        saved = self._edge((0, 0, 0), (1, 0, 0))
+        op = MagicMock()
+        fusion.save_settings(op, [saved], .05, NS(entityToken='sketch'))
+        data = fusion.json.loads(op.attributes.add.call_args.args[2])
+        self.assertEqual(data['version'], 1)
+        self.assertEqual(data['edges'], ['token'])
+        shape = data['edge_shapes'][0]
+        self.assertEqual(shape, [1, [0, 0, 0], [.5, 0, 0], [1, 0, 0]])
+
+        design = NS(findEntityByToken=lambda token: [])
+        same = self._edge((1, 0, 0), (0, 0, 0))  # direction may differ
+        arc = self._edge((0, 0, 0), (1, 0, 0), length=1.2)  # same ends, longer
+        other = self._edge((0, 1, 0), (1, 1, 0))
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [other, arc, same]), same)
+            self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [same, same]), same)
+            # Moved, or two different edges in the same place: reselect.
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [other, arc]))
+            twin = self._edge((0, 0, 0), (1, 0, 0))
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [same, twin]))
+            # Settings saved by earlier versions have no shapes.
+            self.assertIsNone(fusion.find_edge(design, 'token', None, lambda: [same]))
+
+    def test_saved_edge_token_is_preferred_over_shape(self):
+        by_token = object()
+        design = NS(findEntityByToken=lambda token: [by_token])
+        candidates = MagicMock()
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            self.assertIs(fusion.find_edge(design, 'token', [1, [0] * 3, [0] * 3, [0] * 3],
+                                           candidates), by_token)
+        candidates.assert_not_called()
+
+    def test_setup_model_edges_include_bodies_inside_occurrences(self):
+        body, nested = NS(edges=['a', 'b']), NS(edges=['c'])
+        child = NS(bRepBodies=[nested], childOccurrences=[])
+        occurrence = NS(bRepBodies=[], childOccurrences=[child])
+        with patch.object(adsk.fusion.BRepBody, 'cast',
+                          side_effect=lambda e: e if hasattr(e, 'edges') else None),                 patch.object(adsk.fusion.Occurrence, 'cast',
+                             side_effect=lambda e: e if hasattr(e, 'childOccurrences') else None):
+            self.assertEqual(fusion.setup_model_edges(NS(models=[body, occurrence])),
+                             ['a', 'b', 'c'])
+
     def test_trace_settings_reset_on_create_and_edit(self):
         op = MagicMock()
         params = {name: NS(expression='unsafe') for name in

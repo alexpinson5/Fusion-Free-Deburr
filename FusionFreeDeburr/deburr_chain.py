@@ -118,6 +118,17 @@ def dist(a, b):
     return math.sqrt(dm.dot(d, d))
 
 
+def same_edge_shape(a, b, tol):
+    """Whether two edge shapes [length, start, middle, end] describe the same
+    edge, in either direction."""
+    if not a or not b or len(a) != 4 or len(b) != 4:
+        return False
+    if abs(a[0] - b[0]) > tol or dist(a[2], b[2]) > tol:
+        return False
+    return any(dist(a[1], s) <= tol and dist(a[3], e) <= tol
+               for s, e in ((b[1], b[3]), (b[3], b[1])))
+
+
 def _plane_basis(axis):
     """Two unit vectors spanning the plane perpendicular to axis."""
     z = dm.normalize(axis)

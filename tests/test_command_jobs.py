@@ -79,12 +79,14 @@ class CommandJobTests(unittest.TestCase):
                 patch.object(adsk.core.ValueCommandInput, 'cast', side_effect=lambda v: v), \
                 patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
             job = cmd._capture_job(inputs, session)
+        picked = tuple(edges)
         values.clear()
         edges.clear()
         width.value = 10
         self.assertIs(job.document, doc)
         self.assertIs(job.operation, op)
         self.assertEqual(job.edge_tokens, ('edge-a', 'edge-b'))
+        self.assertEqual(job.edges, picked)
         self.assertEqual(job.width, .025)
         self.assertTrue(job.keep_current_tool)
 
@@ -139,6 +141,25 @@ class CommandJobTests(unittest.TestCase):
             with self.assertRaisesRegex(dm.DeburrError, 'active document changed'):
                 cmd._apply_job(job)
             build.assert_not_called()
+
+    def test_edge_whose_token_cannot_be_resolved_uses_the_picked_edge(self):
+        # Issue #14: tokens of edges in linked components and manufacturing
+        # models do not resolve through the design.
+        found, linked = object(), NS(isValid=True)
+        design = NS(findEntityByToken=lambda token: [found] if token == 'a' else [])
+        job = cmd.DeburrJob(None, None, None, ('a', 'b'), .02, '{}', False,
+                            (NS(isValid=True), linked))
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            edges = cmd._job_edges(design, job)
+        self.assertIs(edges[0], found)  # a token that resolves still wins
+        self.assertIs(edges[1], linked)
+
+    def test_unresolved_token_with_no_valid_picked_edge_is_rejected(self):
+        design = NS(findEntityByToken=lambda token: [])
+        for picked in ((), (NS(isValid=False),)):
+            job = cmd.DeburrJob(None, None, None, ('a',), .02, '{}', False, picked)
+            with self.subTest(picked=picked),                     self.assertRaisesRegex(dm.DeburrError, 'no longer exists'):
+                cmd._job_edges(design, job)
 
     def test_invalidated_operation_is_rejected_before_mutation(self):
         doc = NS(isValid=True)
