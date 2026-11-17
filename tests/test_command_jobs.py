@@ -158,8 +158,53 @@ class CommandJobTests(unittest.TestCase):
         design = NS(findEntityByToken=lambda token: [])
         for picked in ((), (NS(isValid=False),)):
             job = cmd.DeburrJob(None, None, None, ('a',), .02, '{}', False, picked)
-            with self.subTest(picked=picked),                     self.assertRaisesRegex(dm.DeburrError, 'no longer exists'):
+            with self.subTest(picked=picked), \
+                    self.assertRaisesRegex(dm.DeburrError, 'no longer exists'):
                 cmd._job_edges(design, job)
+
+    def _load(self, settings, found):
+        """Run _load_edges; `found` maps (token, shape) to an edge or None."""
+        sel = MagicMock()
+        sel.addSelection.return_value = True
+        self.session.settings = lambda: settings
+        self.session.design = object()
+        self.session.edit_op = NS(parentSetup='setup')
+        calls = []
+
+        def find_edge(design, token, shape, candidates):
+            calls.append((token, shape))
+            return found.get(token)
+        with patch.object(adsk.core.SelectionCommandInput, 'cast', side_effect=lambda v: v), \
+                patch.object(cmd.deburr_fusion, 'find_edge', side_effect=find_edge), \
+                patch.object(cmd.deburr_fusion, 'setup_model_edges', return_value=[]):
+            cmd._load_edges(NS(itemById=lambda _id: sel))
+        return sel, calls
+
+    def test_load_edges_pairs_each_token_with_its_saved_shape(self):
+        a, b = object(), object()
+        sel, calls = self._load({'edges': ['a', 'b'], 'edge_shapes': ['sa', 'sb']},
+                                {'a': a, 'b': b})
+        self.assertEqual(calls, [('a', 'sa'), ('b', 'sb')])
+        self.assertEqual([c.args[0] for c in sel.addSelection.call_args_list], [a, b])
+        self.ui.messageBox.assert_not_called()
+
+    def test_load_edges_from_settings_without_shapes(self):
+        # Operations saved before edge shapes were recorded, or with fewer
+        # shapes than edges, look the extra edges up by token only.
+        for shapes in ({}, {'edge_shapes': None}, {'edge_shapes': ['sa']}):
+            with self.subTest(shapes=shapes):
+                self.ui.messageBox.reset_mock()
+                _sel, calls = self._load({'edges': ['a', 'b'], **shapes},
+                                         {'a': object(), 'b': object()})
+                self.assertEqual(calls[1], ('b', None))
+                self.ui.messageBox.assert_not_called()
+
+    def test_load_edges_asks_to_reselect_edges_that_are_not_found(self):
+        sel, _calls = self._load({'edges': ['a', 'b'], 'edge_shapes': ['sa', 'sb']},
+                                 {'a': object()})
+        self.assertEqual(sel.addSelection.call_count, 1)
+        self.assertIn('1 saved edge(s) could not be found',
+                      self.ui.messageBox.call_args.args[0])
 
     def test_invalidated_operation_is_rejected_before_mutation(self):
         doc = NS(isValid=True)

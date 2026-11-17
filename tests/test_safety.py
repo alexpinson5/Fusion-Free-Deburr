@@ -255,7 +255,8 @@ class SafetyTests(unittest.TestCase):
         child = NS(bRepBodies=[nested], childOccurrences=[])
         occurrence = NS(bRepBodies=[], childOccurrences=[child])
         with patch.object(adsk.fusion.BRepBody, 'cast',
-                          side_effect=lambda e: e if hasattr(e, 'edges') else None),                 patch.object(adsk.fusion.Occurrence, 'cast',
+                          side_effect=lambda e: e if hasattr(e, 'edges') else None), \
+                patch.object(adsk.fusion.Occurrence, 'cast',
                              side_effect=lambda e: e if hasattr(e, 'childOccurrences') else None):
             self.assertEqual(fusion.setup_model_edges(NS(models=[body, occurrence])),
                              ['a', 'b', 'c'])
