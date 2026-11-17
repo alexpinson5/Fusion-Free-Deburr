@@ -182,13 +182,66 @@ Edges are normally found again by their entity token. `Design.findEntityByToken`
 does not resolve edges of linked (external reference) components or manufacturing
 models (issue #14), so two fallbacks apply only when a token fails. The queued job
 uses the picked edge itself if Fusion still reports it valid. For later edits, each
-saved edge also stores its shape (length, start, middle and end points); the edge
-is then the single setup-model edge matching that shape within 0.001 mm. No match,
-or two different matching edges, asks for reselection. The shape list is an
-optional addition to the saved settings: older operations load unchanged. These
-fallbacks are covered by mocked unit tests only and have not yet been verified in
-Fusion. Lollipop and chamfer paths on manufacturing models stay rejected by the
+saved edge also stores its shape (its length and nine points evenly spaced along
+it, ends included); the edge is then the single setup-model edge matching that
+shape within 0.001 mm, in either direction. Start, middle and end points alone are
+not enough: two same-radius circles in perpendicular planes share all three and the
+same length, and differ only at the points between. No match, or two different
+matching edges, asks for reselection. The shape list is an
+optional addition to the saved settings: older operations load unchanged.
+Lollipop and chamfer paths on manufacturing models stay rejected by the
 clearance setup check.
+
+Live verification (2026-11-17, Fusion 2706.1.17): on a flat part with 2D pockets
+in a linked component (the part in issue #14), with a 2 mm single-flute DATRON ball
+end mill, the pocket edges could be selected, a valid toolpath generated without
+the earlier error, and the operation edited afterwards. This run used the dialog
+and the first version of the fallback, which stored three points per edge.
+
+Live verification of the nine-point shape (2026-11-17, Fusion 2706.1.17), run by
+API script against the loaded add-in's own functions rather than through the
+dialog. The part was `xref demo CAM`: one body of a linked component inside a
+manufacturing model, with a 1/4 in ball end mill. None of the setup model's six
+edge tokens resolved through the design, and each edge was found again as itself
+by shape alone. Two semicircular arcs with the same radius, length and end points
+in perpendicular planes each got an operation through `_apply_job`: both generated
+a valid toolpath without warnings, saved nine points, were found again as the
+picked arc and not the other one, and regenerated a valid toolpath after an edit to
+a wider chamfer. A three-point shape from the first version matched nothing, so
+those operations ask for reselection. The reviewer's case was reproduced on
+in-memory cylinder end circles of the same radius about one centre, in the XY and
+XZ planes: the three-point shape matched them to each other and the nine-point
+shape did not, so with only the other circle present the lookup returns nothing.
+Two circles in the same place still match each other and ask for reselection when
+both are present.
+
+The same script checks were repeated on a second setup whose model is the linked
+component's body directly, with no manufacturing model. There all four edge tokens
+resolved through the design, so the token path was used; with token lookup switched
+off in the script, the shape alone also returned the picked arc and not the other.
+Both arcs' operations generated valid toolpaths without warnings, before and after
+the edit. In this document the token failure therefore came from the manufacturing
+model, not from the link alone.
+
+Dialog checks by hand (2026-11-17, same Fusion version, part and tool, nine-point
+shape), on the operations for both arcs in the manufacturing-model setup and in
+the linked-model setup: editing an operation, clearing the selection, reselecting
+the edge and accepting generated the expected toolpath; editing and accepting with
+no changes recalculated the operation, and the toolpath visibly followed the
+selected edge for both the horizontal and the vertical arc. Not yet verified in
+Fusion: lollipop or chamfer
+cutters on linked edges.
+
+Guide sketches and manufacturing models (observed 2026-11-17, Fusion 2706.1.17,
+`xref demo CAM`): the guide sketch is always drawn in the design's root component
+as a fixed spline, and Fusion reports that sketch as fully constrained. A
+manufacturing model holds Fusion's own copy of the design, and in that copy each
+guide curve is an unconstrained control-point spline that can be dragged. The
+Trace operation's curve selection refers to the curve in the design, for setups on
+the manufacturing model too, so dragging the copy did not change the toolpath. The
+copy cannot be locked from the design: setting `isFixed` on the design's fixed
+spline fails with "invalid set operation for fixed entity". The add-in leaves the
+manufacturing model's copy alone.
 
 Live verification (2026-10-30, Fusion 2705.1.30): the 11 saved edges in
 `Xometry_Mill_Test_Part` produced one contour and generated a valid Trace toolpath

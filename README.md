@@ -62,4 +62,6 @@ AI assistants. See [CONTRIBUTING.md](CONTRIBUTING.md) and check
 
 Fusion Free Deburr generates custom 3D sketch geometry and uses Fusion's native Trace strategy to create the toolpath.
 
+The sketch for each operation is drawn in the design. A manufacturing model holds Fusion's own copy of the design, including a copy of each of these sketches that can be dragged when editing the manufacturing model. The toolpath follows the sketch in the design, not that copy, so moving the copy does not change the toolpath. To change a deburr path, use **Edit Deburr**.
+
 > **Beta software:** Simulate and inspect the toolpath before machining.

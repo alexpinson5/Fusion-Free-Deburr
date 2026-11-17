@@ -408,14 +408,16 @@ def find_by_token(design: adsk.fusion.Design, token, cast):
 
 
 def edge_shape(edge: adsk.fusion.BRepEdge):
-    """[length, start, middle, end] of an edge in model space, or None."""
+    """[length, point, ...] of an edge in model space, or None: its length and
+    dc.EDGE_SHAPE_POINTS points evenly spaced in parameter, start to end."""
     ev = edge.evaluator
     ok, t0, t1 = ev.getParameterExtents()
     if not ok:
         return None
     points = []
-    for t in (t0, (t0 + t1) / 2, t1):
-        ok, p = ev.getPointAtParameter(t)
+    last = dc.EDGE_SHAPE_POINTS - 1
+    for i in range(last + 1):
+        ok, p = ev.getPointAtParameter(t0 + (t1 - t0) * i / last)
         if not ok:
             return None
         points.append(list(_tup(p)))

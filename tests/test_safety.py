@@ -1,5 +1,6 @@
 """Focused safety regressions; Fusion API boundaries are mocked."""
 import importlib
+import math
 import os
 import sys
 import unittest
@@ -100,13 +101,26 @@ class SafetyTests(unittest.TestCase):
             self.assertEqual(tools.validate_ball_tool(MagicMock()), .5)
 
     @staticmethod
-    def _edge(start, end, length=None):
-        mid = tuple((a + b) / 2 for a, b in zip(start, end))
-        points = {0: start, .5: mid, 1: end}
+    def _curve_edge(point_at, length):
+        """A mock edge whose point at parameter t (0 to 1) is point_at(t)."""
         evaluator = NS(getParameterExtents=lambda: (True, 0, 1),
-                       getPointAtParameter=lambda t: (True, NS(**dict(zip('xyz', points[t])))))
-        return NS(evaluator=evaluator, entityToken='token',
-                  length=dc.dist(start, end) if length is None else length)
+                       getPointAtParameter=lambda t: (True, NS(**dict(zip('xyz', point_at(t))))))
+        return NS(evaluator=evaluator, entityToken='token', length=length)
+
+    @classmethod
+    def _edge(cls, start, end, length=None):
+        return cls._curve_edge(
+            lambda t: tuple(a + (b - a) * t for a, b in zip(start, end)),
+            dc.dist(start, end) if length is None else length)
+
+    @classmethod
+    def _circle(cls, u, v, radius=1, reverse=False):
+        """A full circle about the origin in the plane of unit vectors u, v,
+        starting and ending at radius * u."""
+        def point_at(t):
+            a = 2 * math.pi * (1 - t if reverse else t)
+            return tuple(radius * (math.cos(a) * p + math.sin(a) * q) for p, q in zip(u, v))
+        return cls._curve_edge(point_at, 2 * math.pi * radius)
 
     def test_saved_edge_is_found_by_shape_when_its_token_does_not_resolve(self):
         # Issue #14: linked components and manufacturing models.
@@ -117,7 +131,7 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(data['version'], 1)
         self.assertEqual(data['edges'], ['token'])
         shape = data['edge_shapes'][0]
-        self.assertEqual(shape, [1, [0, 0, 0], [.5, 0, 0], [1, 0, 0]])
+        self.assertEqual(shape, [1] + [[i / 8, 0, 0] for i in range(9)])
 
         design = NS(findEntityByToken=lambda token: [])
         same = self._edge((1, 0, 0), (0, 0, 0))  # direction may differ
@@ -133,12 +147,42 @@ class SafetyTests(unittest.TestCase):
             # Settings saved by earlier versions have no shapes.
             self.assertIsNone(fusion.find_edge(design, 'token', None, lambda: [same]))
 
+    def test_saved_circle_is_not_matched_to_a_perpendicular_circle(self):
+        # Review of the issue #14 fix: two same-radius circles in perpendicular planes have
+        # the same length and the same start, middle and end points.
+        x, y, z = (1, 0, 0), (0, 1, 0), (0, 0, 1)
+        saved, other = self._circle(x, y), self._circle(x, z)
+        shape, other_shape = fusion.edge_shape(saved), fusion.edge_shape(other)
+        self.assertEqual(len(shape), 1 + dc.EDGE_SHAPE_POINTS)
+        self.assertAlmostEqual(shape[0], other_shape[0])
+        for i in (1, 5, 9):  # start, middle, end
+            self.assertLess(dc.dist(shape[i], other_shape[i]), 1e-9)
+        self.assertFalse(dc.same_edge_shape(shape, other_shape, fusion.VERTEX_TOL))
+
+        design = NS(findEntityByToken=lambda token: [])
+        again = self._circle(x, y)
+        backwards = self._circle(x, y, reverse=True)
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            # Only the other circle is left: reselect, never the wrong edge.
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [other]))
+            self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [other, again]), again)
+            self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [other, backwards]),
+                          backwards)
+
+    def test_edge_shape_with_fewer_points_never_matches(self):
+        # Start, middle and end only, as first proposed for issue #14.
+        sparse = [1, [0, 0, 0], [.5, 0, 0], [1, 0, 0]]
+        full = fusion.edge_shape(self._edge((0, 0, 0), (1, 0, 0)))
+        self.assertTrue(dc.same_edge_shape(full, full, fusion.VERTEX_TOL))
+        self.assertFalse(dc.same_edge_shape(sparse, sparse, fusion.VERTEX_TOL))
+        self.assertFalse(dc.same_edge_shape(sparse, full, fusion.VERTEX_TOL))
+
     def test_saved_edge_token_is_preferred_over_shape(self):
         by_token = object()
         design = NS(findEntityByToken=lambda token: [by_token])
         candidates = MagicMock()
         with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
-            self.assertIs(fusion.find_edge(design, 'token', [1, [0] * 3, [0] * 3, [0] * 3],
+            self.assertIs(fusion.find_edge(design, 'token', [1] + [[0] * 3] * 9,
                                            candidates), by_token)
         candidates.assert_not_called()
 
