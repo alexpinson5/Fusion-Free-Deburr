@@ -187,8 +187,11 @@ only when a token fails:
   evenly spaced along it, ends included. The edge is then the single setup-model
   edge whose shape matches within 0.001 mm, in either direction, and that the saved
   token names when resolved through the design owning that edge's body (the
-  manufacturing model's own design). Shape alone never selects an edge, so a
-  coincident edge of another body is refused. Three points are not enough: two
+  manufacturing model's own design). The setup can instead give the edge from
+  the document's design while the token only resolves in a manufacturing
+  model's design; the edge found there is a copy, so it must be the same-numbered
+  edge of a same-named body, in the same place. Shape alone never selects an
+  edge, so a coincident edge of another body is refused. Three points are not enough: two
   same-radius circles in perpendicular planes share start, middle and end.
 
 No match, or two different matches, asks for reselection. The shape list is an
@@ -209,6 +212,14 @@ Live verification (2026-11-17, Fusion 2706.1.17, by Alex Pinson):
 - The same part with the linked body used directly (no manufacturing model):
   tokens resolved through the design, so the token failure comes from the
   manufacturing model, not from the link.
+- `Fusion Free Deburr - 3D Showcase` (maintainer QA, same day and version): an
+  edge picked with a manufacturing model present created a valid operation, but
+  editing it reported one saved edge missing. The setup gave the edge from the
+  document's design and the token only resolved in the manufacturing model's
+  design. With the copy check above, editing it found the edge again (edge 44
+  of body `Showcase`), and a read-only script found nothing once that edge was
+  removed. Editing an operation made before this change, and editing after
+  save, close and reopen, also worked.
 - Not yet verified: lollipop or chamfer cutters on linked edges.
 
 A manufacturing model holds Fusion's own copy of the guide sketch, as a draggable

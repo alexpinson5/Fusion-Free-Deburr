@@ -232,7 +232,9 @@ def _load_edges(inputs: adsk.core.CommandInputs):
     shapes = settings.get('edge_shapes') or []
     for i, token in enumerate(tokens):
         shape = shapes[i] if i < len(shapes) else None
-        edge = deburr_fusion.find_edge(s.design, token, shape, model_edges)
+        edge = deburr_fusion.find_edge(
+            s.design, token, shape, model_edges,
+            lambda: deburr_fusion.manufacturing_model_designs(s.design))
         if not (edge and sel.addSelection(edge)):
             missing += 1
     if missing:

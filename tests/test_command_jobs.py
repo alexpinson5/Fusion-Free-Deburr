@@ -171,7 +171,7 @@ class CommandJobTests(unittest.TestCase):
         self.session.edit_op = NS(parentSetup='setup')
         calls = []
 
-        def find_edge(design, token, shape, candidates):
+        def find_edge(design, token, shape, candidates, designs):
             calls.append((token, shape))
             return found.get(token)
         with patch.object(adsk.core.SelectionCommandInput, 'cast', side_effect=lambda v: v), \

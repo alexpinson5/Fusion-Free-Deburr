@@ -209,6 +209,34 @@ class SafetyTests(unittest.TestCase):
                     self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [edge]),
                                   edge if found else None)
 
+    def _in_body(self, edge, name, index):
+        """Make `edge` edge number `index` of a body called `name`."""
+        edges = [object() for _ in range(index + 2)]
+        edges[index] = edge
+        edge.body = NS(name=name, edges=edges, parentComponent=edge.body.parentComponent)
+        return edge
+
+    def test_saved_edge_is_found_through_a_manufacturing_models_copy(self):
+        # Seen in Fusion 2706.1.17: the edge was picked in the manufacturing
+        # model, whose design resolves its token, but the setup gives the same
+        # edge from the document's design, which does not. The two are
+        # different edges of copies of one body.
+        shape = fusion.edge_shape(self._edge((0, 0, 0), (1, 0, 0)))
+        design = NS(findEntityByToken=lambda token: [])
+        candidate = self._in_body(self._edge((0, 0, 0), (1, 0, 0)), 'Part', 3)
+        with patch.object(adsk.fusion.BRepEdge, 'cast', side_effect=lambda v: v):
+            for copy, found in ((self._in_body(self._edge((1, 0, 0), (0, 0, 0)), 'Part', 3), True),
+                                (self._in_body(self._edge((0, 0, 0), (1, 0, 0)), 'Other', 3), False),
+                                (self._in_body(self._edge((0, 0, 0), (1, 0, 0)), 'Part', 2), False),
+                                (self._in_body(self._edge((0, 1, 0), (1, 1, 0)), 'Part', 3), False)):
+                model = NS(findEntityByToken=lambda token, copy=copy: [copy])
+                with self.subTest(body=copy.body.name, place=fusion.edge_shape(copy)[1]):
+                    self.assertIs(fusion.find_edge(design, 'token', shape, lambda: [candidate],
+                                                   lambda: [model]),
+                                  candidate if found else None)
+            # Without the manufacturing models' designs the token is unknown.
+            self.assertIsNone(fusion.find_edge(design, 'token', shape, lambda: [candidate]))
+
     def test_saved_circle_is_not_matched_to_a_perpendicular_circle(self):
         # Review of the issue #14 fix: two same-radius circles in perpendicular planes have
         # the same length and the same start, middle and end points.
